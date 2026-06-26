@@ -73,7 +73,13 @@ class MQTTPublisher:
         return self._connected
 
     def publish_sensor(
-        self, device_mac: str, device_name: str, location: str, template, decoded: dict
+        self,
+        device_mac: str,
+        device_name: str,
+        location: str,
+        template,
+        decoded: dict,
+        fahrenheit: bool = False,
     ):
         """Publish decoded sensor values and HA discovery configs."""
         if not self._connected:
@@ -94,14 +100,15 @@ class MQTTPublisher:
             # HA auto-discovery
             if self.discovery_enabled:
                 self._publish_discovery(
-                    device_id, device_name, location, template, field
+                    device_id, device_name, location, template, field, fahrenheit
                 )
 
         # Publish availability
         self._client.publish(f"{base_topic}/availability", "online", retain=True)
 
     def _publish_discovery(
-        self, device_id: str, device_name: str, location: str, template, field
+        self, device_id: str, device_name: str, location: str, template, field,
+        fahrenheit: bool = False,
     ):
         """Publish HA MQTT discovery config for a sensor."""
         disc_key = f"{device_id}_{field.key}"
@@ -110,6 +117,10 @@ class MQTTPublisher:
 
         unique_id = f"ble_{device_id}_{field.key}"
         component = "sensor"
+        # location disambiguates multiple devices that share a name
+        display_name = f"{device_name} {location}".strip()
+        # temperatures are stored as Celsius; show °F when the bridge converts
+        unit = "°F" if (field.fahrenheit_convert and fahrenheit) else field.unit
 
         config = {
             "name": field.name,
@@ -118,14 +129,14 @@ class MQTTPublisher:
             "availability_topic": f"{self.topic_prefix}/{device_id}/availability",
             "device": {
                 "identifiers": [device_id],
-                "name": device_name,
+                "name": display_name,
                 "manufacturer": template.manufacturer,
                 "model": template.model,
                 "via_device": "ble_mqtt_bridge",
             },
         }
-        if field.unit:
-            config["unit_of_measurement"] = field.unit
+        if unit:
+            config["unit_of_measurement"] = unit
         if field.device_class:
             config["device_class"] = field.device_class
         if field.state_class:

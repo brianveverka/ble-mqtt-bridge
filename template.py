@@ -57,13 +57,18 @@ class TemplateField:
         self.icon = definition.get("icon", "")
         self.fahrenheit_convert = definition.get("fahrenheit_convert", False)
 
-    def decode(self, data: bytes) -> Any:
-        """Decode this field from raw packet bytes."""
+    def decode(self, data: bytes, fahrenheit: bool = False) -> Any:
+        """Decode this field from raw packet bytes.
+
+        ``fahrenheit_convert`` marks a field as a Celsius temperature that may be
+        converted; the conversion only happens when the caller passes
+        ``fahrenheit=True`` (driven by the global bridge setting).
+        """
         raw = data[self.start_byte : self.end_byte + 1]
         value = self._decode_raw(raw)
-        if isinstance(value, (int, float)):
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
             value = value * self.scale
-            if self.fahrenheit_convert:
+            if self.fahrenheit_convert and fahrenheit:
                 value = value * 9 / 5 + 32
             if isinstance(value, float):
                 value = round(value, 2)
@@ -134,12 +139,12 @@ class Template:
         self.characteristic = definition.get("characteristic", "")
         self.fields = [TemplateField(f) for f in definition.get("fields", [])]
 
-    def decode(self, data: bytes) -> dict:
+    def decode(self, data: bytes, fahrenheit: bool = False) -> dict:
         """Decode a full packet, returning {key: value} dict."""
         result = {}
         for field in self.fields:
             try:
-                result[field.key] = field.decode(data)
+                result[field.key] = field.decode(data, fahrenheit=fahrenheit)
             except (IndexError, struct.error):
                 result[field.key] = None
         return result
@@ -267,6 +272,7 @@ def load_bridge_config(path: str = "bridge.conf") -> dict:
             "scan_timeout": 10,
             "reconnect_delay": 5,
             "log_level": "INFO",
+            "fahrenheit": False,
         },
     }
     if not os.path.exists(path):

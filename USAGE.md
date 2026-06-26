@@ -163,6 +163,7 @@ discovery_prefix = homeassistant
 scan_timeout = 10
 reconnect_delay = 5
 log_level = INFO
+fahrenheit = false        # Convert temperature fields to °F (default Celsius)
 ```
 
 ### Adding Devices
