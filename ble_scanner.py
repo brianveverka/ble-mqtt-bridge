@@ -23,14 +23,15 @@ async def scan_devices(timeout: int = 10) -> list[dict]:
     """Scan for BLE devices. Returns list of {address, name, rssi}."""
     BleakScanner, _ = _get_bleak()
     logger.info(f"Scanning for BLE devices ({timeout}s)...")
-    devices = await BleakScanner.discover(timeout=timeout)
+    # bleak >=0.20 moved RSSI onto AdvertisementData (BLEDevice.rssi is gone in 3.x)
+    discovered = await BleakScanner.discover(timeout=timeout, return_adv=True)
     results = []
-    for d in devices:
+    for d, adv in discovered.values():
         results.append(
             {
                 "address": d.address,
-                "name": d.name or "Unknown",
-                "rssi": d.rssi,
+                "name": adv.local_name or d.name or "Unknown",
+                "rssi": adv.rssi,
             }
         )
     logger.info(f"Found {len(results)} devices")
@@ -56,13 +57,28 @@ class BLEConnection:
 
     async def connect(self):
         """Connect to the device and subscribe to notifications."""
-        _, BleakClient = _get_bleak()
-        self._client = BleakClient(
-            self.address,
-            disconnected_callback=self._handle_disconnect,
-        )
+        BleakScanner, BleakClient = _get_bleak()
+        target = self.address
         logger.info(f"Connecting to {self.address}...")
-        await self._client.connect()
+        try:
+            self._client = BleakClient(
+                target, disconnected_callback=self._handle_disconnect
+            )
+            await self._client.connect()
+        except Exception as exc:
+            # BlueZ raises "device not found" until it has discovered the address.
+            # Scan once to register it, then retry with the resolved device. (A
+            # scan can't see an already-connected device, so we never scan first.)
+            if "not found" not in str(exc).lower():
+                raise
+            logger.info(f"{self.address} not cached; scanning to resolve...")
+            target = await BleakScanner.find_device_by_address(self.address, timeout=20.0)
+            if target is None:
+                raise
+            self._client = BleakClient(
+                target, disconnected_callback=self._handle_disconnect
+            )
+            await self._client.connect()
         self._connected = True
         logger.info(f"Connected to {self.address}")
 
