@@ -11,3 +11,6 @@ discovery_prefix = homeassistant
 scan_timeout = 10
 reconnect_delay = 5
 log_level = INFO
+# Convert temperature fields (those marked fahrenheit_convert in the template)
+# from Celsius to Fahrenheit. false = leave in Celsius.
+fahrenheit = false

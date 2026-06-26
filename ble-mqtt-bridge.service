@@ -8,6 +8,10 @@ Type=simple
 User=ble-mqtt
 Group=ble-mqtt
 WorkingDirectory=/opt/ble-mqtt
+# Some hosts (e.g. Raspberry Pi) bring Bluetooth up RF-killed; unblock and power
+# the adapter before start. The leading '+' runs this as root, bypassing the
+# User= and sandbox settings below for this command only.
+ExecStartPre=+/bin/sh -c 'rfkill unblock bluetooth 2>/dev/null || for d in /sys/class/rfkill/rfkill*; do [ "$(cat "$d/type")" = bluetooth ] && echo 0 > "$d/soft"; done; hciconfig hci0 up 2>/dev/null || true'
 ExecStart=/opt/ble-mqtt/venv/bin/python /opt/ble-mqtt/ble_mqtt_bridge.py
 Restart=on-failure
 RestartSec=10

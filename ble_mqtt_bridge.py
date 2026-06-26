@@ -32,6 +32,7 @@ class BLEBridge:
             discovery=self.config["mqtt"]["discovery"],
             discovery_prefix=self.config["mqtt"]["discovery_prefix"],
         )
+        self.fahrenheit = bool(self.config["bridge"].get("fahrenheit", False))
         self.connections: dict[str, BLEConnection] = {}
         self._running = False
 
@@ -107,9 +108,11 @@ class BLEBridge:
         location = dev_cfg.get("location", "")
 
         def on_data(data: bytes):
-            decoded = template.decode(data)
+            decoded = template.decode(data, fahrenheit=self.fahrenheit)
             logger.debug(f"{mac}: {decoded}")
-            self.publisher.publish_sensor(mac, device_name, location, template, decoded)
+            self.publisher.publish_sensor(
+                mac, device_name, location, template, decoded, fahrenheit=self.fahrenheit
+            )
 
         def on_disconnect(addr):
             logger.warning(f"Device {addr} disconnected, will reconnect")
