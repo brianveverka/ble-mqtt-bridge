@@ -146,6 +146,9 @@ Type=simple
 User=$SERVICE_USER
 Group=$SERVICE_USER
 WorkingDirectory=$APP_DIR
+# Unblock + power Bluetooth before start (some hosts bring it up RF-killed).
+# Leading '+' runs as root, bypassing User= and the sandbox for this command.
+ExecStartPre=+/bin/sh -c 'rfkill unblock bluetooth 2>/dev/null || for d in /sys/class/rfkill/rfkill*; do [ "\$(cat "\$d/type")" = bluetooth ] && echo 0 > "\$d/soft"; done; hciconfig hci0 up 2>/dev/null || true'
 ExecStart=$APP_DIR/venv/bin/python $APP_DIR/ble_mqtt_bridge.py
 Restart=on-failure
 RestartSec=10
