@@ -22,8 +22,8 @@
     {
       "key": "pm10",
       "name": "PM10",
-      "start_byte": 24,
-      "end_byte": 25,
+      "start_byte": 34,
+      "end_byte": 35,
       "type": "uint16_be",
       "scale": 0.1,
       "unit": "µg/m³",
@@ -32,22 +32,21 @@
       "icon": "mdi:air-filter"
     },
     {
-      "key": "pm1",
-      "name": "PM1.0",
-      "start_byte": 20,
-      "end_byte": 21,
-      "type": "uint16_be",
-      "scale": 0.1,
-      "unit": "µg/m³",
+      "key": "aqi",
+      "name": "AQI",
+      "start_byte": 29,
+      "end_byte": 29,
+      "type": "uint8",
+      "device_class": "aqi",
       "state_class": "measurement",
-      "icon": "mdi:air-filter"
+      "icon": "mdi:leaf"
     },
     {
       "key": "temp",
       "name": "Temperature",
-      "start_byte": 26,
-      "end_byte": 27,
-      "type": "int16_be",
+      "start_byte": 24,
+      "end_byte": 25,
+      "type": "uint16_be",
       "scale": 0.1,
       "unit": "°C",
       "device_class": "temperature",
@@ -58,14 +57,25 @@
     {
       "key": "humidity",
       "name": "Humidity",
-      "start_byte": 28,
-      "end_byte": 29,
+      "start_byte": 26,
+      "end_byte": 27,
       "type": "uint16_be",
       "scale": 0.1,
       "unit": "%",
       "device_class": "humidity",
       "state_class": "measurement",
       "icon": "mdi:water-percent"
+    },
+    {
+      "key": "co2",
+      "name": "CO2",
+      "start_byte": 30,
+      "end_byte": 31,
+      "type": "uint16_be",
+      "unit": "ppm",
+      "device_class": "carbon_dioxide",
+      "state_class": "measurement",
+      "icon": "mdi:molecule-co2"
     }
   ]
 }
