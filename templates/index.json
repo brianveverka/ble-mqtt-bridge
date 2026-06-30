@@ -22,5 +22,13 @@
     "description": "Temperature, humidity, and battery sensor",
     "confirmed": true,
     "contributor": "project"
+  },
+  "thermopro_tp960": {
+    "name": "ThermoPro TP960",
+    "manufacturer": "ThermoPro",
+    "model": "TP960R",
+    "description": "Wireless probe thermometer (probe temperature; ff01 notify)",
+    "confirmed": true,
+    "contributor": "project"
   }
 }

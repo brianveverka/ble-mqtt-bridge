@@ -92,8 +92,10 @@ Add `templates/<id>.json`. Each field:
 ```
 
 Supported types: `uint8/int8`, `uint16_be/le`, `int16_be/le`, `uint32_be/le`,
-`float32_be/le`, `bool`, `ascii`. Set `characteristic` to the notify UUID and
-`packet_length` to the expected size. Mark temperature fields
+`float32_be/le`, `bool`, `ascii`. The decoded value is `raw * scale + offset`
+(use `offset` for sensors that don't read 0 at raw 0 — e.g. the ThermoPro probe
+below). Set `characteristic` to the notify UUID and `packet_length` to the
+expected size. Mark temperature fields
 `fahrenheit_convert: true` (the bridge converts only when `[bridge] fahrenheit =
 true`). Validate by decoding your captured packets and checking every value is
 physically sane.
@@ -159,6 +161,10 @@ Point the agent at the Pi over SSH and have it:
 - **Temtop P2** (`templates/temtop_p2.json`): vendor notify char `…2b10`, 49-byte
   packets; PM2.5/PM10/AQI/temperature/humidity/CO2. Temp is `uint16_be` bytes
   24–25 ×0.1 °C.
-- **ThermoPro-style TP960R**: vendor service `93bb7cab-…`, `ff01` notify, 8-byte
-  packets shaped `10 00 [probe] 00 [ambient] 0a [..] 00`. Probe byte calibrated
-  with ice water (0 °C) and boiling water (100 °C). A textbook controlled-decode.
+- **ThermoPro TP960R** (`templates/thermopro_tp960.json`): vendor service
+  `93bb7cab-…`, `ff01` notify, 8-byte packets shaped `10 00 [probe] 00 [..] 0a
+  [..] 00`. The probe is byte 2 (`uint8`); calibrated against two equilibrium
+  fixed points — ice water (b2=37 → 0 °C) and a rolling boil (b2=130 → 100 °C) —
+  giving `scale 1.07527, offset -39.785`. A textbook controlled-decode. (Note:
+  use *equilibrium* points, not transient mid-heating readings — the probe and a
+  reference thermometer lag and stratify while the water is heating.)

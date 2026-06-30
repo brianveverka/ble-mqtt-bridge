@@ -1,0 +1,25 @@
+{
+  "template_version": 1,
+  "name": "ThermoPro TP960",
+  "manufacturer": "ThermoPro",
+  "model": "TP960R",
+  "ble_name_prefix": "TP960",
+  "packet_length": 8,
+  "characteristic": "0000ff01-0000-1000-8000-00805f9b34fb",
+  "fields": [
+    {
+      "key": "probe",
+      "name": "Probe",
+      "start_byte": 2,
+      "end_byte": 2,
+      "type": "uint8",
+      "scale": 1.07527,
+      "offset": -39.785,
+      "unit": "°C",
+      "device_class": "temperature",
+      "state_class": "measurement",
+      "icon": "mdi:thermometer-probe",
+      "fahrenheit_convert": true
+    }
+  ]
+}

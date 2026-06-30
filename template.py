@@ -51,6 +51,7 @@ class TemplateField:
         self.end_byte = definition.get("end_byte", self.start_byte)
         self.field_type = definition.get("type", "uint8")
         self.scale = definition.get("scale", 1)
+        self.offset = definition.get("offset", 0)
         self.unit = definition.get("unit", "")
         self.device_class = definition.get("device_class", "")
         self.state_class = definition.get("state_class", "")
@@ -67,7 +68,7 @@ class TemplateField:
         raw = data[self.start_byte : self.end_byte + 1]
         value = self._decode_raw(raw)
         if isinstance(value, (int, float)) and not isinstance(value, bool):
-            value = value * self.scale
+            value = value * self.scale + self.offset
             if self.fahrenheit_convert and fahrenheit:
                 value = value * 9 / 5 + 32
             if isinstance(value, float):
@@ -113,6 +114,8 @@ class TemplateField:
         }
         if self.scale != 1:
             d["scale"] = self.scale
+        if self.offset:
+            d["offset"] = self.offset
         if self.unit:
             d["unit"] = self.unit
         if self.device_class:
