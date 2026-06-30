@@ -2,6 +2,10 @@
 
 A general-purpose tool that connects to any Bluetooth LE device, decodes its packets using user-defined templates, and publishes to MQTT with full Home Assistant auto-discovery support.
 
+> **Prefer the AI-assisted path.** Adding a new device and deploying to a Pi is
+> meant to be driven by an AI coding agent — see [AGENT_GUIDE.md](AGENT_GUIDE.md).
+> This document is the manual reference for installation, config, and operation.
+
 ---
 
 ## Table of Contents
