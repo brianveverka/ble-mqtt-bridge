@@ -20,6 +20,19 @@
       "state_class": "measurement",
       "icon": "mdi:thermometer-probe",
       "fahrenheit_convert": true
+    },
+    {
+      "key": "ambient",
+      "name": "Ambient",
+      "start_byte": 6,
+      "end_byte": 6,
+      "type": "uint8",
+      "offset": -32,
+      "unit": "°C",
+      "device_class": "temperature",
+      "state_class": "measurement",
+      "icon": "mdi:thermometer",
+      "fahrenheit_convert": true
     }
   ]
 }
