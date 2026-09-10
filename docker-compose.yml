@@ -17,8 +17,6 @@ services:
       - ./bridge.conf:/app/bridge.conf
       - ./devices.conf:/app/devices.conf
       - ./templates:/app/templates
-    ports:
-      - "5000:5000"           # Web UI
 
   # ── Decoder Wizard (standalone) ──
   # Uncomment to run the decoder wizard separately

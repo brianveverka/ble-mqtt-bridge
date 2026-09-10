@@ -40,16 +40,6 @@ header h1 {
 
 header h1 span { color: var(--accent); }
 
-.status-dot {
-  width: 10px; height: 10px;
-  border-radius: 50%;
-  display: inline-block;
-  margin-right: 6px;
-}
-.status-dot.online { background: var(--success); }
-.status-dot.offline { background: var(--error); }
-.status-dot.connecting { background: var(--warn); }
-
 nav.tabs {
   display: flex;
   background: var(--surface);
@@ -191,7 +181,6 @@ label {
 }
 
 .hex-byte:hover { background: var(--surface2); }
-.hex-byte.selected { background: var(--accent); color: #fff; }
 .hex-byte.changed { background: var(--warn); color: #000; }
 .hex-byte.mapped {
   background: var(--accent2);
@@ -260,8 +249,11 @@ label {
   max-width: 350px;
 }
 
+/* app.js emits all four of these types via toast(msg, type). */
 .toast.success { border-left-color: var(--success); }
 .toast.error { border-left-color: var(--error); }
+.toast.warn { border-left-color: var(--warn); }
+.toast.info { border-left-color: var(--accent); }
 
 @keyframes slideIn {
   from { transform: translateX(100%); opacity: 0; }

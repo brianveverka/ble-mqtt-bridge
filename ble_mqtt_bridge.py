@@ -1,11 +1,9 @@
 """BLE → MQTT Bridge runtime service."""
 
 import asyncio
+import contextlib
 import logging
 import signal
-import sys
-import time
-from pathlib import Path
 
 from template import TemplateRegistry, load_devices_config, load_bridge_config
 from ble_scanner import BLEConnection
@@ -56,7 +54,7 @@ class BLEBridge:
         asyncio.set_event_loop(loop)
 
         # Handle shutdown
-        def shutdown(sig, frame):
+        def shutdown(_sig, _frame):
             logger.info("Shutting down...")
             self._running = False
 
@@ -72,7 +70,18 @@ class BLEBridge:
             self.publisher.disconnect()
 
     async def _run_loop(self):
-        """Main async loop - connects and maintains device connections."""
+        """Main async loop - re-dials whatever is not currently connected.
+
+        Sweeps the configured devices and attempts a connection for each one
+        that has no live connection, then sleeps ``reconnect_delay`` seconds at
+        the *tail* of the loop. So the first sweep runs immediately at t=0, and
+        the gap between sweeps is ``reconnect_delay`` plus however long the
+        sweep itself took -- a single unresolvable device can add up to 20s of
+        that, waiting out ``BleakScanner.find_device_by_address``. It does not
+        tend established connections; those run themselves off BLE
+        notifications until they drop, at which point the next sweep picks them
+        back up.
+        """
         reconnect_delay = self.config["bridge"].get("reconnect_delay", 5)
 
         while self._running:
@@ -126,11 +135,9 @@ class BLEBridge:
 
     async def _cleanup(self):
         """Disconnect all devices."""
-        for mac, conn in self.connections.items():
-            try:
+        for conn in self.connections.values():
+            with contextlib.suppress(Exception):
                 await conn.disconnect()
-            except Exception:
-                pass
         self.connections.clear()
 
 

@@ -95,7 +95,8 @@ Supported types: `uint8/int8`, `uint16_be/le`, `int16_be/le`, `uint32_be/le`,
 `float32_be/le`, `bool`, `ascii`. The decoded value is `raw * scale + offset`
 (use `offset` for sensors that don't read 0 at raw 0 — e.g. the ThermoPro probe
 below). Set `characteristic` to the notify UUID and `packet_length` to the
-expected size. Mark temperature fields
+expected size — `packet_length` is recorded metadata only, nothing validates an
+incoming packet against it, so a wrong value fails silently. Mark temperature fields
 `fahrenheit_convert: true` (the bridge converts only when `[bridge] fahrenheit =
 true`). Validate by decoding your captured packets and checking every value is
 physically sane.
@@ -131,8 +132,8 @@ Point the agent at the Pi over SSH and have it:
    `ble-mqtt` service user + venv, and lays down systemd units.
 3. Write `/opt/ble-mqtt/bridge.conf` (broker host/port, `fahrenheit`) and
    `/opt/ble-mqtt/devices.conf`; `chown ble-mqtt:ble-mqtt`.
-4. `systemctl enable --now ble-mqtt-bridge` (disable `-ui` / `-decoder` if you
-   want headless).
+4. `systemctl enable --now ble-mqtt-bridge` (for headless, disable `-ui`;
+   `-decoder` is installed but not enabled by default, so leave it alone).
 5. Verify: logs show both/all devices streaming, and state lands on the broker.
 
 ---

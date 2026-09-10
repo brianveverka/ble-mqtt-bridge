@@ -66,7 +66,8 @@ sudo ./install.sh status
 1. Installs Python 3, pip, and Bluetooth dependencies
 2. Creates dedicated user `ble-mqtt`
 3. Installs to `/opt/ble-mqtt/`
-4. Sets up systemd services for bridge + web UI
+4. Lays down systemd units for bridge, web UI and decoder wizard, and enables the
+   first two (the decoder is installed but left disabled)
 5. Creates virtual environment with dependencies
 
 **Start services:**
@@ -77,8 +78,14 @@ sudo systemctl start ble-mqtt-bridge-decoder  # Decoder wizard (port 5001)
 ```
 
 **Enable auto-start on boot:**
+
+The installer enables `ble-mqtt-bridge` and `ble-mqtt-bridge-ui` for you. The decoder
+unit is installed but deliberately **not** enabled — it will not come back after a
+reboot unless you enable it yourself.
+
 ```bash
 sudo systemctl enable ble-mqtt-bridge ble-mqtt-bridge-ui
+sudo systemctl enable ble-mqtt-bridge-decoder   # optional, off by default
 ```
 
 **Uninstall:**
@@ -113,15 +120,18 @@ docker-compose up -d
 ```
 
 **Run specific component:**
+
+`docker-compose.yml` hardcodes `MODE=bridge-ui` in its `environment:` block, and that
+beats anything you export in the shell — exporting `MODE=bridge` before
+`docker-compose up -d` silently does nothing. To run a single component either edit the
+`MODE` line in
+`docker-compose.yml`, or skip compose and use `docker run` (see
+[Docker Usage](#docker-usage)):
+
 ```bash
 # Bridge only
-MODE=bridge docker-compose up -d
-
-# Web UI only
-MODE=ui docker-compose up -d
-
-# Decoder wizard only
-MODE=decoder docker-compose up -d
+docker run -d --name ble-mqtt-bridge --privileged --network host \
+  -e MODE=bridge ble-mqtt
 ```
 
 ### WSL Installation
@@ -141,7 +151,10 @@ sudo ./install.sh install
 - Windows 11 with WSL2
 - `usbipd` to attach Bluetooth adapter to WSL
 - Or use the Web UI on Windows and connect to a remote BLE host
-- Also it is liklely completely broken because AI
+
+**This path is untested.** Nobody has run the bridge end-to-end under WSL. Treat the
+instructions above as a starting point, not a supported configuration — a Raspberry Pi
+or any Linux host with a real adapter is the tested setup.
 
 ---
 
@@ -197,9 +210,14 @@ location = Bedroom
 Templates are JSON files in `/opt/ble-mqtt/templates/`.
 
 **Included templates:**
-- `temtop_p2` — Temtop P2 (PM1/2.5/10, temp, humidity)
-- `temtop_m10` — Temtop M10 (formaldehyde + PM2.5)
-- `govee_h5075` — Govee H5075 (temp, humidity, battery)
+- `temtop_p2` — Temtop P2 (PM2.5, PM10, AQI, temperature, humidity, CO2)
+- `temtop_m10` — Temtop M10 (formaldehyde, PM2.5, temperature, humidity)
+- `thermopro_tp960` — ThermoPro TP960R (probe + ambient temperature) — the
+  best-documented decode in the repo; see [AGENT_GUIDE.md](AGENT_GUIDE.md)
+- `govee_h5075` — Govee H5075 (temp, humidity, battery) — **unverified.** Its
+  `characteristic` is the Temtop vendor UUID, and the H5075 broadcasts its readings in
+  its advertisement rather than over connect-and-notify, which is the only mode this
+  bridge supports. Almost certainly a copy-paste; do not trust it without hardware.
 
 **Template format:**
 ```json
@@ -272,7 +290,14 @@ Access at `http://<host>:5000`
 - View all configured devices
 - Add/remove devices
 - Change templates
-- See connection status
+
+The web UI edits config and drives the BLE radio itself: it reads and writes
+`devices.conf` and `templates/`, and its own `POST /api/scan` and `POST /api/capture`
+endpoints scan for devices and write capture files into `captures/`. What it does
+**not** do is show live bridge or MQTT state — the bridge runs in a separate process
+and the UI has no channel to it. Scanning and capture need Bluetooth access, so a
+`MODE=ui` container started without `--privileged --network host` can still edit config
+but cannot scan or capture.
 
 ### Templates Tab
 - Browse available templates
@@ -351,7 +376,8 @@ The Decoder Wizard helps you reverse-engineer unsupported BLE devices.
 Run decoder wizard without the full bridge:
 
 ```bash
-# Via systemd (if installed)
+# Via systemd — the unit is installed but NOT enabled, so start it by hand
+# (and `systemctl enable` it if you want it after a reboot)
 sudo systemctl start ble-mqtt-bridge-decoder
 
 # Or manually
@@ -402,7 +428,8 @@ docker run -d \
   ble-mqtt
 ```
 
-**Just the UI (connects to external bridge):**
+**Just the UI — config editor only. It has no channel to the bridge, and with no
+Bluetooth access (`--privileged --network host`) it cannot scan or capture either:**
 ```bash
 docker run -d \
   --name ble-mqtt-ui \
@@ -563,18 +590,10 @@ docker logs ble-mqtt-bridge
 
 ### Multiple Bridges
 
-Run multiple bridge instances for different device groups:
-
-```bash
-# Bridge 1
-cp bridge.conf bridge1.conf
-cp devices.conf devices1.conf
-# Edit configs, then:
-python3 ble_mqtt_bridge.py --config bridge1.conf
-
-# Bridge 2
-python3 ble_mqtt_bridge.py --config bridge2.conf
-```
+**Not currently supported.** `ble_mqtt_bridge.py` takes no command-line arguments —
+`BLEBridge()` hardcodes `bridge.conf` and `devices.conf` relative to the working
+directory. Running a second instance means a second working directory (or a second
+container) with its own pair of config files.
 
 ### API Access
 
@@ -597,26 +616,48 @@ curl -X POST http://localhost:5000/api/scan \
 
 ### Health Checks
 
-**Bridge health:**
+**Is the bridge running?**
 ```bash
-curl -s http://localhost:5000/api/devices | jq .
+sudo systemctl status ble-mqtt-bridge
+sudo journalctl -u ble-mqtt-bridge -f
 ```
 
-**MQTT health:**
+Port 5000 cannot answer that question. `GET /api/devices` calls
+`load_devices_config(DEVICES_FILE)`, which re-reads `devices.conf` off disk, so it
+returns 200 whether the bridge process is alive, dead, or was never installed. It is a
+config read, not a health check — the UI has no channel to the bridge (see
+[Web Interface](#web-interface)).
+
+**Is anything publishing?**
 ```bash
-mosquitto_sub -h localhost -t "ble/+/availability" -v
+mosquitto_sub -h <broker> -t "ble/+/availability" -v
+mosquitto_sub -h <broker> -t "ble/#" -v
 ```
+
+**Retained `online` is not a liveness check.** `MQTTPublisher.publish_sensor()`
+publishes `ble/<device_id>/availability` = `online` **retained** after each successful
+read, and nothing anywhere publishes `offline`: `connect()` registers no Last Will
+(there is no `will_set` call) and `disconnect()` publishes nothing. A retained `online`
+therefore outlives a dead bridge indefinitely, and anything treating that topic as
+liveness — Home Assistant's availability handling included — will go on showing the
+device as up long after it stopped reporting.
+
+The real signal is the **freshness of the state topics**,
+`ble/<device_id>/<field>/state`. Those are retained as well, so a stale value still
+reads back on subscribe: watch for them to change, or read the bridge's own log, rather
+than trusting `availability`.
 
 ---
 
 ## Support
 
-- **Issues:** https://github.com/anomalyco/opencode/issues
-- **Documentation:** See README.md for architecture details
-- **Help:** `/help` command for CLI usage
+- **Documentation:** [README.md](README.md) for the overview, [AGENT_GUIDE.md](AGENT_GUIDE.md)
+  for the device-onboarding method.
+- **Issues:** raise them wherever this repo lives — there is no public issue tracker.
 
 ---
 
 ## License
 
-See LICENSE file for details.
+No licence has been declared for this project yet — there is no `LICENSE` file in the
+repo.

@@ -18,13 +18,13 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # App code
-COPY template.py decoder.py ble_scanner.py mqtt_publisher.py ./
-COPY ble_mqtt_bridge.py bridge_ui.py decoder_standalone.py ./
+COPY template.py ble_scanner.py mqtt_publisher.py ./
+COPY ble_mqtt_bridge.py bridge_ui.py ui_fragments.py decoder_standalone.py ./
 COPY static/ ./static/
 COPY templates/ ./templates/
 
 # Directories for runtime data
-RUN mkdir -p captures models
+RUN mkdir -p captures
 
 # Default configs (mount real ones over these)
 COPY bridge.conf.example bridge.conf

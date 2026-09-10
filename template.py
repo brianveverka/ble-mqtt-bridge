@@ -3,42 +3,44 @@
 import json
 import struct
 import os
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Optional
 
 
-SUPPORTED_TYPES = {
-    "uint8",
-    "int8",
-    "uint16_be",
-    "uint16_le",
-    "int16_be",
-    "int16_le",
-    "uint32_be",
-    "uint32_le",
-    "float32_be",
-    "float32_le",
-    "bool",
-    "ascii",
-}
+def _add_optional(d: dict, entries: tuple) -> None:
+    """Add ``key: value`` to ``d`` for each ``(key, value, include)`` with truthy ``include``.
 
-HA_DEVICE_CLASSES = {
-    "pm25",
-    "pm10",
-    "temperature",
-    "humidity",
-    "carbon_dioxide",
-    "aqi",
-    "pressure",
-    "battery",
-    "signal_strength",
-    "energy",
-    "power",
-    "voltage",
-    "current",
-    "illuminance",
-    "moisture",
-}
+    Keeps the emit-only-when-interesting rules of ``to_dict`` in one place while
+    leaving each rule (and the key order) visible at the call site.
+    """
+    for key, value, include in entries:
+        if include:
+            d[key] = value
+
+
+def _scan_config(path: str, section_prefix: str = "[") -> Iterator[tuple]:
+    """Yield ``("section", name)`` / ``("pair", key, value)`` events from an INI-ish file.
+
+    Lines are stripped; blank lines and ``#`` comments are skipped. A line that
+    starts with ``section_prefix`` and ends with ``]`` is a section header whose
+    name is the text between the two. Any *other* line containing ``=`` is split
+    on the first ``=`` into a stripped key/value pair. Anything else is ignored.
+
+    ``section_prefix`` is what keeps the two loaders honest: ``devices.conf``
+    only recognises ``[device:...]`` headers, so a bracketed line that is not one
+    still falls through to the pair branch exactly as it always did.
+    """
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith(section_prefix) and line.endswith("]"):
+                yield "section", line[len(section_prefix) : -1]
+            elif "=" in line:
+                key, val = line.split("=", 1)
+                yield "pair", key.strip(), val.strip()
 
 
 class TemplateField:
@@ -76,56 +78,54 @@ class TemplateField:
         return value
 
     def _decode_raw(self, raw: bytes) -> Any:
-        length = len(raw)
         if self.field_type == "uint8":
             return raw[0]
-        elif self.field_type == "int8":
+        if self.field_type == "int8":
             return struct.unpack("b", raw[:1])[0]
-        elif self.field_type == "bool":
+        if self.field_type == "bool":
             return raw[0] != 0
-        elif self.field_type == "ascii":
+        if self.field_type == "ascii":
             return raw.decode("ascii", errors="replace").strip("\x00")
-        elif self.field_type == "uint16_be":
+        if self.field_type == "uint16_be":
             return struct.unpack(">H", raw[:2])[0]
-        elif self.field_type == "uint16_le":
+        if self.field_type == "uint16_le":
             return struct.unpack("<H", raw[:2])[0]
-        elif self.field_type == "int16_be":
+        if self.field_type == "int16_be":
             return struct.unpack(">h", raw[:2])[0]
-        elif self.field_type == "int16_le":
+        if self.field_type == "int16_le":
             return struct.unpack("<h", raw[:2])[0]
-        elif self.field_type == "uint32_be":
+        if self.field_type == "uint32_be":
             return struct.unpack(">I", raw[:4])[0]
-        elif self.field_type == "uint32_le":
+        if self.field_type == "uint32_le":
             return struct.unpack("<I", raw[:4])[0]
-        elif self.field_type == "float32_be":
+        if self.field_type == "float32_be":
             return struct.unpack(">f", raw[:4])[0]
-        elif self.field_type == "float32_le":
+        if self.field_type == "float32_le":
             return struct.unpack("<f", raw[:4])[0]
-        else:
-            raise ValueError(f"Unsupported field type: {self.field_type}")
+        raise ValueError(f"Unsupported field type: {self.field_type}")
 
     def to_dict(self) -> dict:
-        d = {
+        d: dict[str, Any] = {
             "key": self.key,
             "name": self.name,
             "start_byte": self.start_byte,
             "end_byte": self.end_byte,
             "type": self.field_type,
         }
-        if self.scale != 1:
-            d["scale"] = self.scale
-        if self.offset:
-            d["offset"] = self.offset
-        if self.unit:
-            d["unit"] = self.unit
-        if self.device_class:
-            d["device_class"] = self.device_class
-        if self.state_class:
-            d["state_class"] = self.state_class
-        if self.icon:
-            d["icon"] = self.icon
-        if self.fahrenheit_convert:
-            d["fahrenheit_convert"] = True
+        _add_optional(
+            d,
+            (
+                # scale is only interesting when it is not the identity
+                ("scale", self.scale, self.scale != 1),
+                ("offset", self.offset, self.offset),
+                ("unit", self.unit, self.unit),
+                ("device_class", self.device_class, self.device_class),
+                ("state_class", self.state_class, self.state_class),
+                ("icon", self.icon, self.icon),
+                # emitted as a literal True, never as the raw attribute
+                ("fahrenheit_convert", True, self.fahrenheit_convert),
+            ),
+        )
         return d
 
 
@@ -153,18 +153,20 @@ class Template:
         return result
 
     def to_dict(self) -> dict:
-        d = {
+        d: dict[str, Any] = {
             "template_version": self.template_version,
             "name": self.name,
             "manufacturer": self.manufacturer,
             "model": self.model,
         }
-        if self.ble_name_prefix:
-            d["ble_name_prefix"] = self.ble_name_prefix
-        if self.packet_length:
-            d["packet_length"] = self.packet_length
-        if self.characteristic:
-            d["characteristic"] = self.characteristic
+        _add_optional(
+            d,
+            (
+                ("ble_name_prefix", self.ble_name_prefix, self.ble_name_prefix),
+                ("packet_length", self.packet_length, self.packet_length),
+                ("characteristic", self.characteristic, self.characteristic),
+            ),
+        )
         d["fields"] = [f.to_dict() for f in self.fields]
         return d
 
@@ -188,7 +190,7 @@ class TemplateRegistry:
         # Load index if exists
         index_path = self.template_dir / "index.json"
         if index_path.exists():
-            with open(index_path) as f:
+            with open(index_path, encoding="utf-8") as f:
                 self.index = json.load(f)
 
         # Load each template file
@@ -196,11 +198,11 @@ class TemplateRegistry:
             if path.name == "index.json":
                 continue
             try:
-                with open(path) as f:
+                with open(path, encoding="utf-8") as f:
                     data = json.load(f)
                 template_id = path.stem
                 self.templates[template_id] = Template(data)
-            except (json.JSONDecodeError, KeyError) as e:
+            except (json.JSONDecodeError, UnicodeDecodeError, KeyError) as e:
                 print(f"Warning: failed to load template {path}: {e}")
 
     def get(self, template_id: str) -> Optional[Template]:
@@ -222,40 +224,28 @@ class TemplateRegistry:
             result.append(entry)
         return result
 
-    def find_by_ble_name(self, name: str) -> Optional[Template]:
-        """Find a template matching a BLE device name."""
-        name_lower = name.lower()
-        for tmpl in self.templates.values():
-            if tmpl.ble_name_prefix and tmpl.ble_name_prefix.lower() in name_lower:
-                return tmpl
-        return None
-
     def save_template(self, template_id: str, template: Template):
         """Save a template to disk."""
         self.template_dir.mkdir(parents=True, exist_ok=True)
         path = self.template_dir / f"{template_id}.json"
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(template.to_dict(), f, indent=2)
         self.templates[template_id] = template
 
 
 def load_devices_config(path: str = "devices.conf") -> dict:
     """Parse devices.conf into {mac: {template, name, location}} dict."""
-    devices = {}
+    devices: dict = {}
     current_mac = None
     if not os.path.exists(path):
         return devices
-    with open(path) as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if line.startswith("[device:") and line.endswith("]"):
-                current_mac = line[8:-1]
-                devices[current_mac] = {}
-            elif current_mac and "=" in line:
-                key, val = line.split("=", 1)
-                devices[current_mac][key.strip()] = val.strip()
+    for event in _scan_config(path, "[device:"):
+        if event[0] == "section":
+            current_mac = event[1]
+            devices[current_mac] = {}
+        elif current_mac:
+            # a pair joins the block the last [device:...] header opened
+            devices[current_mac][event[1]] = event[2]
     return devices
 
 
@@ -281,24 +271,17 @@ def load_bridge_config(path: str = "bridge.conf") -> dict:
     if not os.path.exists(path):
         return config
     section = None
-    with open(path) as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if line.startswith("[") and line.endswith("]"):
-                section = line[1:-1]
-            elif section and "=" in line:
-                key, val = line.split("=", 1)
-                key = key.strip()
-                val = val.strip()
-                if section in config:
-                    # Type coercion
-                    if val.lower() in ("true", "yes"):
-                        val = True
-                    elif val.lower() in ("false", "no"):
-                        val = False
-                    elif val.isdigit():
-                        val = int(val)
-                    config[section][key] = val
+    for event in _scan_config(path):
+        if event[0] == "section":
+            section = event[1]
+        elif section and section in config:
+            # unknown sections are silently dropped, values are coerced by shape
+            key, val = event[1], event[2]
+            if val.lower() in ("true", "yes"):
+                val = True
+            elif val.lower() in ("false", "no"):
+                val = False
+            elif val.isdigit():
+                val = int(val)
+            config[section][key] = val
     return config

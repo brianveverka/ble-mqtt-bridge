@@ -3,7 +3,6 @@
 import json
 import logging
 import time
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +14,9 @@ def _get_mqtt():
 
         return mqtt
     except ImportError:
-        raise ImportError("paho-mqtt is required. Install with: pip install paho-mqtt")
+        raise ImportError(
+            "paho-mqtt is required. Install with: pip install paho-mqtt"
+        ) from None
 
 
 class MQTTPublisher:
@@ -119,7 +120,8 @@ class MQTTPublisher:
         component = "sensor"
         # location disambiguates multiple devices that share a name
         display_name = f"{device_name} {location}".strip()
-        # temperatures are stored as Celsius; show °F when the bridge converts
+        # the value on the state topic has already been converted by the decoder;
+        # this only makes the advertised unit agree with what was published
         unit = "°F" if (field.fahrenheit_convert and fahrenheit) else field.unit
 
         config = {
@@ -149,13 +151,13 @@ class MQTTPublisher:
         self._discovered.add(disc_key)
         logger.debug(f"Published discovery for {unique_id}")
 
-    def _on_connect(self, client, userdata, flags, rc):
+    def _on_connect(self, _client, _userdata, _flags, rc):
         if rc == 0:
             self._connected = True
             logger.info("Connected to MQTT broker")
         else:
             logger.error(f"MQTT connection failed: rc={rc}")
 
-    def _on_disconnect(self, client, userdata, rc):
+    def _on_disconnect(self, _client, _userdata, rc):
         self._connected = False
         logger.warning(f"Disconnected from MQTT broker (rc={rc})")

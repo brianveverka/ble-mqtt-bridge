@@ -395,8 +395,19 @@ function decodeFieldPreview(bytes, field) {
       case 'ascii': val = String.fromCharCode(...raw).replace(/\0/g, ''); break;
       default: val = '?';
     }
-    if (typeof val === 'number' && field.scale !== 1) {
-      val = (val * field.scale).toFixed(2);
+    // Same arithmetic as TemplateField.decode in template.py: raw * scale + offset,
+    // so a field definition carrying an offset (thermopro_tp960.json has
+    // offset -39.785) previews the value the bridge would publish.
+    //
+    // Defensive alignment with the Python decoder, not a fix for an observed
+    // symptom: the wizard has no offset input. decoderState.fields is only ever
+    // [] or what addField() pushes, and addField() never sets offset, so
+    // field.offset is undefined today and the ?? 0 keeps this branch behaving
+    // exactly as it did before.
+    const scale = field.scale ?? 1;
+    const offset = field.offset ?? 0;
+    if (typeof val === 'number' && (scale !== 1 || offset !== 0)) {
+      val = (val * scale + offset).toFixed(2);
     }
     return String(val);
   } catch (e) {
@@ -460,6 +471,7 @@ async function generateTemplate() {
         type: f.type,
       };
       if (f.scale !== 1) out.scale = f.scale;
+      if (f.offset) out.offset = f.offset;
       if (f.unit) out.unit = f.unit;
       if (f.device_class) out.device_class = f.device_class;
       if (f.state_class) out.state_class = f.state_class;

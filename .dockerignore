@@ -2,7 +2,9 @@ __pycache__/
 *.pyc
 .git/
 .ruff_cache/
+.pytest_cache/
+.mypy_cache/
 captures/
-models/
+tests/
 venv/
 *.Zone.Identifier

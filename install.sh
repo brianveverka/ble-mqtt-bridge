@@ -37,15 +37,16 @@ detect_platform() {
     fi
 }
 
+# Probed once at startup; every caller reads $PLATFORM instead of re-running it.
+PLATFORM="$(detect_platform)"
+
 install_system_deps() {
     log "Installing system dependencies..."
     apt-get update -qq
 
     local pkgs=(python3 python3-pip python3-venv bluetooth bluez libbluetooth-dev)
-    local platform
-    platform=$(detect_platform)
 
-    if [[ "$platform" == "wsl" ]]; then
+    if [[ "$PLATFORM" == "wsl" ]]; then
         warn "WSL detected — Bluetooth hardware access requires usbipd or similar"
         warn "BLE scanning may not work inside WSL without USB passthrough"
         # WSL doesn't need bluez but we still install python
@@ -77,11 +78,10 @@ install_app() {
     mkdir -p "$APP_DIR/templates"
     mkdir -p "$APP_DIR/captures"
     mkdir -p "$APP_DIR/static"
-    mkdir -p "$APP_DIR/models"
 
     # Copy application files
-    for f in template.py decoder.py ble_scanner.py mqtt_publisher.py \
-             ble_mqtt_bridge.py bridge_ui.py decoder_standalone.py \
+    for f in template.py ble_scanner.py mqtt_publisher.py \
+             ble_mqtt_bridge.py bridge_ui.py ui_fragments.py decoder_standalone.py \
              requirements.txt; do
         if [[ -f "$src_dir/$f" ]]; then
             cp "$src_dir/$f" "$APP_DIR/"
@@ -120,11 +120,46 @@ install_app() {
     log "Application installed"
 }
 
-install_systemd_units() {
-    local platform
-    platform=$(detect_platform)
+write_unit() {
+    # Everything the three units share lives here. The four varying fields are
+    # positional; the three optional trailing arguments cover the only places a
+    # single unit differs, and emit nothing at all when left empty:
+    #   $5  extra [Unit] lines           — bridge only (Wants=)
+    #   $6  extra [Service] lines        — bridge only (the ExecStartPre= block)
+    #   $7  comment above the hardening block — bridge and ui only
+    local unit_name="$1" description="$2" after="$3" exec_start="$4"
+    local unit_extra="${5:-}" service_extra="${6:-}" hardening_comment="${7:-}"
 
-    if [[ "$platform" == "wsl" ]]; then
+    {
+        printf '[Unit]\n'
+        printf 'Description=%s\n' "$description"
+        printf 'After=%s\n' "$after"
+        if [[ -n "$unit_extra" ]]; then printf '%s\n' "$unit_extra"; fi
+        printf '\n[Service]\n'
+        printf 'Type=simple\n'
+        printf 'User=%s\n' "$SERVICE_USER"
+        printf 'Group=%s\n' "$SERVICE_USER"
+        printf 'WorkingDirectory=%s\n' "$APP_DIR"
+        if [[ -n "$service_extra" ]]; then printf '%s\n' "$service_extra"; fi
+        printf 'ExecStart=%s\n' "$exec_start"
+        printf 'Restart=on-failure\n'
+        printf 'RestartSec=10\n'
+        printf 'StandardOutput=journal\n'
+        printf 'StandardError=journal\n'
+        printf '\n'
+        if [[ -n "$hardening_comment" ]]; then printf '%s\n' "$hardening_comment"; fi
+        printf 'NoNewPrivileges=true\n'
+        printf 'ProtectSystem=strict\n'
+        printf 'ProtectHome=true\n'
+        printf 'ReadWritePaths=%s\n' "$APP_DIR"
+        printf 'PrivateTmp=true\n'
+        printf '\n[Install]\n'
+        printf 'WantedBy=multi-user.target\n'
+    } > "/etc/systemd/system/$unit_name"
+}
+
+install_systemd_units() {
+    if [[ "$PLATFORM" == "wsl" ]]; then
         warn "WSL detected — systemd may not be available"
         warn "Use 'wsl.conf' with systemd=true, or run manually:"
         warn "  $APP_DIR/venv/bin/python $APP_DIR/ble_mqtt_bridge.py"
@@ -135,89 +170,36 @@ install_systemd_units() {
 
     log "Installing systemd service units..."
 
-    cat > /etc/systemd/system/${APP_NAME}.service <<UNIT
-[Unit]
-Description=BLE to MQTT Bridge
-After=network.target bluetooth.service
-Wants=network.target bluetooth.service
-
-[Service]
-Type=simple
-User=$SERVICE_USER
-Group=$SERVICE_USER
-WorkingDirectory=$APP_DIR
+    # Quoted heredoc delimiter: the body is taken literally, so the '$' signs and
+    # the nested quoting in the shell one-liner reach the unit file untouched.
+    local bridge_service_extra
+    bridge_service_extra=$(cat <<'PRE'
 # Unblock + power Bluetooth before start (some hosts bring it up RF-killed).
 # Leading '+' runs as root, bypassing User= and the sandbox for this command.
-ExecStartPre=+/bin/sh -c 'rfkill unblock bluetooth 2>/dev/null || for d in /sys/class/rfkill/rfkill*; do [ "\$(cat "\$d/type")" = bluetooth ] && echo 0 > "\$d/soft"; done; hciconfig hci0 up 2>/dev/null || true'
-ExecStart=$APP_DIR/venv/bin/python $APP_DIR/ble_mqtt_bridge.py
-Restart=on-failure
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
+ExecStartPre=+/bin/sh -c 'rfkill unblock bluetooth 2>/dev/null || for d in /sys/class/rfkill/rfkill*; do [ "$(cat "$d/type")" = bluetooth ] && echo 0 > "$d/soft"; done; hciconfig hci0 up 2>/dev/null || true'
+PRE
+)
 
-# Hardening
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=$APP_DIR
-PrivateTmp=true
+    write_unit "${APP_NAME}.service" \
+        "BLE to MQTT Bridge" \
+        "network.target bluetooth.service" \
+        "$APP_DIR/venv/bin/python $APP_DIR/ble_mqtt_bridge.py" \
+        "Wants=network.target bluetooth.service" \
+        "$bridge_service_extra" \
+        "# Hardening"
 
-[Install]
-WantedBy=multi-user.target
-UNIT
+    write_unit "${APP_NAME}-ui.service" \
+        "BLE to MQTT Bridge Web UI" \
+        "network.target ${APP_NAME}.service" \
+        "$APP_DIR/venv/bin/python $APP_DIR/bridge_ui.py" \
+        "" \
+        "" \
+        "# Hardening"
 
-    cat > /etc/systemd/system/${APP_NAME}-ui.service <<UNIT
-[Unit]
-Description=BLE to MQTT Bridge Web UI
-After=network.target ${APP_NAME}.service
-
-[Service]
-Type=simple
-User=$SERVICE_USER
-Group=$SERVICE_USER
-WorkingDirectory=$APP_DIR
-ExecStart=$APP_DIR/venv/bin/python $APP_DIR/bridge_ui.py
-Restart=on-failure
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-
-# Hardening
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=$APP_DIR
-PrivateTmp=true
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-
-    cat > /etc/systemd/system/${APP_NAME}-decoder.service <<UNIT
-[Unit]
-Description=BLE Decoder Wizard (Standalone)
-After=network.target
-
-[Service]
-Type=simple
-User=$SERVICE_USER
-Group=$SERVICE_USER
-WorkingDirectory=$APP_DIR
-ExecStart=$APP_DIR/venv/bin/python $APP_DIR/decoder_standalone.py --port 5001
-Restart=on-failure
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=$APP_DIR
-PrivateTmp=true
-
-[Install]
-WantedBy=multi-user.target
-UNIT
+    write_unit "${APP_NAME}-decoder.service" \
+        "BLE Decoder Wizard (Standalone)" \
+        "network.target" \
+        "$APP_DIR/venv/bin/python $APP_DIR/decoder_standalone.py --port 5001"
 
     systemctl daemon-reload
     log "Systemd units installed"
@@ -252,10 +234,7 @@ SCRIPT
 }
 
 enable_services() {
-    local platform
-    platform=$(detect_platform)
-
-    if [[ "$platform" == "wsl" ]]; then
+    if [[ "$PLATFORM" == "wsl" ]]; then
         return
     fi
 
@@ -267,22 +246,19 @@ enable_services() {
 }
 
 print_summary() {
-    local platform
-    platform=$(detect_platform)
-
     echo ""
     echo "========================================="
     echo "  BLE→MQTT Bridge — Install Complete"
     echo "========================================="
     echo ""
-    echo "  Platform:  $platform"
+    echo "  Platform:  $PLATFORM"
     echo "  Install:   $APP_DIR"
     echo "  Config:    $APP_DIR/bridge.conf"
     echo "  Devices:   $APP_DIR/devices.conf"
     echo "  Templates: $APP_DIR/templates/"
     echo ""
 
-    if [[ "$platform" == "wsl" ]]; then
+    if [[ "$PLATFORM" == "wsl" ]]; then
         echo "  WSL mode — run manually:"
         echo "    $APP_DIR/start-bridge.sh"
         echo "    $APP_DIR/start-ui.sh"
@@ -291,7 +267,7 @@ print_summary() {
         echo "  Service commands:"
         echo "    systemctl start ${APP_NAME}        # Bridge"
         echo "    systemctl start ${APP_NAME}-ui      # Web UI (port 5000)"
-        echo "    systemctl start ${APP_NAME}-decoder  # Decoder (port 5001)"
+        echo "    systemctl start ${APP_NAME}-decoder  # Decoder (port 5001, not enabled at boot)"
         echo ""
         echo "    systemctl status ${APP_NAME}"
         echo "    journalctl -u ${APP_NAME} -f         # Logs"
@@ -307,16 +283,12 @@ uninstall() {
     require_root
     log "Uninstalling ${APP_NAME}..."
 
-    systemctl stop "${APP_NAME}.service" 2>/dev/null || true
-    systemctl stop "${APP_NAME}-ui.service" 2>/dev/null || true
-    systemctl stop "${APP_NAME}-decoder.service" 2>/dev/null || true
-    systemctl disable "${APP_NAME}.service" 2>/dev/null || true
-    systemctl disable "${APP_NAME}-ui.service" 2>/dev/null || true
-    systemctl disable "${APP_NAME}-decoder.service" 2>/dev/null || true
-
-    rm -f /etc/systemd/system/${APP_NAME}.service
-    rm -f /etc/systemd/system/${APP_NAME}-ui.service
-    rm -f /etc/systemd/system/${APP_NAME}-decoder.service
+    local unit
+    for unit in "${APP_NAME}.service" "${APP_NAME}-ui.service" "${APP_NAME}-decoder.service"; do
+        systemctl stop "$unit" 2>/dev/null || true
+        systemctl disable "$unit" 2>/dev/null || true
+        rm -f "/etc/systemd/system/$unit"
+    done
     systemctl daemon-reload
 
     read -rp "Remove $APP_DIR and all data? [y/N] " confirm
@@ -342,12 +314,10 @@ usage() {
 }
 
 status() {
-    local platform
-    platform=$(detect_platform)
-    echo "Platform: $platform"
+    echo "Platform: $PLATFORM"
     echo ""
 
-    if [[ "$platform" != "wsl" ]]; then
+    if [[ "$PLATFORM" != "wsl" ]]; then
         systemctl status "${APP_NAME}.service" --no-pager 2>/dev/null || echo "Bridge: not installed"
         echo ""
         systemctl status "${APP_NAME}-ui.service" --no-pager 2>/dev/null || echo "UI: not installed"

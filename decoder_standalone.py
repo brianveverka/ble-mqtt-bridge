@@ -4,23 +4,18 @@ Usage: python3 decoder_standalone.py [--port 5001]
 """
 
 import argparse
-from flask import Flask, render_template_string, jsonify, request
-import json
-import os
-from pathlib import Path
+from flask import Flask, render_template_string, jsonify
+
+from ui_fragments import HEAD_END, HEAD_START, PAGE_END, SCRIPTS_START, WIZARD_PANELS
 
 app = Flask(__name__, static_folder="static")
 
-HTML = r"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BLE Decoder Wizard</title>
-  <link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-
+# Assembled by concatenation, not formatting -- see ui_fragments for why.
+HTML = (
+    HEAD_START
+    + "  <title>BLE Decoder Wizard</title>\n"
+    + HEAD_END
+    + r"""
 <header>
   <h1>BLE <span>Decoder</span> Wizard</h1>
   <div>Standalone Mode</div>
@@ -37,110 +32,54 @@ HTML = r"""<!DOCTYPE html>
     <button class="btn secondary" onclick="loadSample()">Load Sample Data</button>
   </div>
 
-  <!-- Packet Header -->
-  <div class="wizard-panel">
-    <h3>Packet View</h3>
-    <div style="display:flex; align-items:center; gap:12px; margin-bottom:8px;">
-      <button class="btn small secondary" onclick="prevPacket()">◀ Prev</button>
-      <span id="packet-counter">No packets loaded</span>
-      <button class="btn small secondary" onclick="nextPacket()">Next ▶</button>
-    </div>
-    <div id="packet-view"></div>
-  </div>
-
-  <!-- Byte Diff -->
-  <div class="wizard-panel">
-    <h3>Byte Diff (changes highlighted)</h3>
-    <div id="diff-view"></div>
-  </div>
-
-  <!-- Field Definitions -->
-  <div class="wizard-panel">
-    <h3>Field Definitions</h3>
-    <p style="color: var(--text2); margin-bottom:8px; font-size:0.85rem;">
-      Click a field row to select it, then click bytes in the hex view to set start/end positions.
-    </p>
-    <table class="field-table">
-      <thead>
-        <tr>
-          <th>Name</th><th>Start</th><th>End</th><th>Type</th>
-          <th>Scale</th><th>Unit</th><th>Preview</th><th></th>
-        </tr>
-      </thead>
-      <tbody id="field-table-body"></tbody>
-    </table>
-    <div style="margin-top:12px; display:flex; gap:8px;">
-      <button class="btn secondary" onclick="addField()">+ Add Field</button>
-      <button class="btn secondary" onclick="testDecode()">Test Decode</button>
-    </div>
-  </div>
-
-  <!-- Test Results -->
-  <div class="wizard-panel">
-    <h3>Test Decode Results</h3>
-    <div id="test-results" style="overflow-x:auto;"></div>
-  </div>
-
-  <!-- Generate Template -->
-  <div class="card">
-    <h3>Generate Template</h3>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Template ID</label>
-        <input id="tpl-id" placeholder="my_device">
-      </div>
-      <div class="form-group">
-        <label>Name</label>
-        <input id="tpl-name" placeholder="My Device">
-      </div>
-      <div class="form-group">
-        <label>Manufacturer</label>
-        <input id="tpl-manufacturer" placeholder="Brand">
-      </div>
-      <div class="form-group">
-        <label>Model</label>
-        <input id="tpl-model" placeholder="Model X">
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Characteristic UUID</label>
-        <input id="tpl-characteristic" placeholder="0000xxxx-0000-1000-8000-00805f9b34fb">
-      </div>
-      <div class="form-group">
-        <label>&nbsp;</label>
-        <button class="btn" onclick="generateTemplate()">Download Template JSON</button>
-      </div>
-    </div>
-  </div>
-
+"""
+    + WIZARD_PANELS
+    + r"""
 </div>
 
-<div class="toast-container"></div>
+"""
+    + SCRIPTS_START
+    + r"""  window._templates = [];
 
-<script src="/static/app.js"></script>
-<script>
-  window._templates = [];
+  const SAMPLE_CHAR = '00010203-0405-0607-0809-0a0b0c0d2b10';
+  const SAMPLE_PACKET_LENGTH = 49;
 
+  // Every multi-byte field in templates/temtop_p2.json is uint16_be.
+  function putU16BE(buf, at, raw) {
+    buf[at] = (raw >> 8) & 0xff;
+    buf[at + 1] = raw & 0xff;
+  }
+
+  // Sample packets for the demo, laid out to match templates/temtop_p2.json
+  // exactly: every offset below is that template's own start_byte/end_byte, and
+  // tests/test_web.py asserts the two still agree. An offset that drifts from
+  // the template teaches whoever clicks "Load Sample Data" a layout that does
+  // not exist.
   function loadSample() {
     const packets = [];
-    // Generate sample Temtop-like packets for demo
     for (let i = 0; i < 10; i++) {
-      const bytes = new Array(49).fill(0);
-      // PM1.0 at bytes 20-21
-      bytes[20] = 0; bytes[21] = 10 + i;
-      // PM2.5 at bytes 22-23
-      bytes[22] = 0; bytes[23] = 15 + i * 2;
-      // PM10 at bytes 24-25
-      bytes[24] = 0; bytes[25] = 25 + i * 3;
-      // Temp at bytes 26-27 (signed, 245 = 24.5C)
-      bytes[26] = 0; bytes[27] = 245 + i;
-      // Humidity at bytes 28-29 (450 = 45.0%)
-      bytes[28] = 1; bytes[29] = 194 + i * 5;
+      const bytes = new Array(SAMPLE_PACKET_LENGTH).fill(0);
+      // pm25      bytes 22-23  uint16_be  scale 0.1  ->  15.0 .. 33.0 ug/m3
+      putU16BE(bytes, 22, 150 + i * 20);
+      // temp      bytes 24-25  uint16_be  scale 0.1  ->  24.8 .. 27.5 C
+      // Deliberately crosses 25.5 C: from i = 3 the raw value is 257 or more,
+      // so the high byte is non-zero. That is precisely the case the decoder
+      // scar in AGENT_GUIDE.md got wrong by reading byte 25 on its own, and
+      // sample data that never leaves the low byte teaches the bug rather than
+      // catching it.
+      putU16BE(bytes, 24, 248 + i * 3);
+      // humidity  bytes 26-27  uint16_be  scale 0.1  ->  41.5 .. 46.0 %
+      putU16BE(bytes, 26, 415 + i * 5);
+      // aqi       bytes 29-29  uint8      no scale   ->  42 .. 60
+      bytes[29] = 42 + i * 2;
+      // co2       bytes 30-31  uint16_be  no scale   ->  620 .. 935 ppm
+      putU16BE(bytes, 30, 620 + i * 35);
+      // pm10      bytes 34-35  uint16_be  scale 0.1  ->  21.0 .. 43.5 ug/m3
+      putU16BE(bytes, 34, 210 + i * 25);
 
       packets.push({
         ts: (i * 3).toFixed(3),
-        char: '00010203-0405-0607-0809-0a0b0c0d2b10',
+        char: SAMPLE_CHAR,
         hex: bytes.map(b => b.toString(16).padStart(2, '0')).join(''),
         dec: bytes,
       });
@@ -148,21 +87,14 @@ HTML = r"""<!DOCTYPE html>
     loadCapture({ mac: 'AA:BB:CC:DD:EE:FF', ble_name: 'SAMPLE', packets: packets });
     toast('Sample data loaded', 'success');
   }
-</script>
-
-</body>
-</html>
 """
+    + PAGE_END
+)
 
 
 @app.route("/")
 def index():
     return render_template_string(HTML)
-
-
-@app.route("/static/<path:filename>")
-def static_files(filename):
-    return send_from_directory("static", filename)
 
 
 @app.route("/api/templates", methods=["GET"])

@@ -3,7 +3,7 @@
     "name": "Temtop P2",
     "manufacturer": "Temtop",
     "model": "P2",
-    "description": "Air quality monitor (PM1.0, PM2.5, PM10, temp, humidity)",
+    "description": "Air quality monitor (PM2.5, PM10, AQI, temp, humidity, CO2)",
     "confirmed": true,
     "contributor": "project"
   },
@@ -19,15 +19,15 @@
     "name": "Govee H5075",
     "manufacturer": "Govee",
     "model": "H5075",
-    "description": "Temperature, humidity, and battery sensor",
-    "confirmed": true,
+    "description": "Temperature, humidity, and battery sensor - UNVERIFIED: the characteristic is the Temtop vendor UUID and the H5075 is a broadcast device, so this template has almost certainly never decoded real hardware",
+    "confirmed": false,
     "contributor": "project"
   },
   "thermopro_tp960": {
     "name": "ThermoPro TP960",
     "manufacturer": "ThermoPro",
     "model": "TP960R",
-    "description": "Wireless probe thermometer (probe temperature; ff01 notify)",
+    "description": "Wireless probe thermometer (probe + ambient temperature; ff01 notify)",
     "confirmed": true,
     "contributor": "project"
   }

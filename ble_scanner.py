@@ -1,6 +1,7 @@
 """BLE scanner and connection management using bleak."""
 
 import asyncio
+import contextlib
 import logging
 from typing import Optional, Callable
 
@@ -16,7 +17,7 @@ def _get_bleak():
     except ImportError:
         raise ImportError(
             "bleak is required for BLE operations. Install with: pip install bleak"
-        )
+        ) from None
 
 
 async def scan_devices(timeout: int = 10) -> list[dict]:
@@ -91,10 +92,8 @@ class BLEConnection:
     async def disconnect(self):
         """Disconnect from the device."""
         if self._client and self._connected:
-            try:
+            with contextlib.suppress(Exception):
                 await self._client.stop_notify(self.characteristic)
-            except Exception:
-                pass
             await self._client.disconnect()
             self._connected = False
             logger.info(f"Disconnected from {self.address}")
@@ -104,10 +103,10 @@ class BLEConnection:
             self._connected and self._client is not None and self._client.is_connected
         )
 
-    def _handle_notification(self, sender, data: bytearray):
+    def _handle_notification(self, _sender, data: bytearray):
         self.on_data(bytes(data))
 
-    def _handle_disconnect(self, client):
+    def _handle_disconnect(self, _client):
         self._connected = False
         logger.warning(f"Disconnected from {self.address}")
         if self.on_disconnect:
