@@ -7,3 +7,4 @@ venv/
 bridge.conf
 devices.conf
 captures/*.json
+.claude/settings.local.json
