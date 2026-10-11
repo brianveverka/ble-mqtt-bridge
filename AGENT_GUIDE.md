@@ -69,6 +69,10 @@ reference:
 - Otherwise a trusted reference thermometer, read **at the moment you capture**
   (account for the thing cooling/heating between the reading and the capture).
 
+Take the fixed points at **equilibrium**, not while the water is heating: the probe and
+the reference lag and stratify, so a mid-heat reading gives a confidently wrong
+calibration.
+
 Then:
 - The byte that tracks the sensor you changed is that sensor's value.
 - Solve **scale** and **offset** from ≥2 known points; confirm with a third.
@@ -166,6 +170,4 @@ Point the agent at the Pi over SSH and have it:
   `93bb7cab-…`, `ff01` notify, 8-byte packets shaped `10 00 [probe] 00 [..] 0a
   [..] 00`. The probe is byte 2 (`uint8`); calibrated against two equilibrium
   fixed points — ice water (b2=37 → 0 °C) and a rolling boil (b2=130 → 100 °C) —
-  giving `scale 1.07527, offset -39.785`. A textbook controlled-decode. (Note:
-  use *equilibrium* points, not transient mid-heating readings — the probe and a
-  reference thermometer lag and stratify while the water is heating.)
+  giving `scale 1.07527, offset -39.785`. A textbook controlled-decode.

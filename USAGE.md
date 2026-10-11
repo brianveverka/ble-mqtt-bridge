@@ -34,8 +34,8 @@ A general-purpose tool that connects to any Bluetooth LE device, decodes its pac
 
 ```bash
 # Clone and install
-git clone <repo-url>
-cd ble-mqtt
+git clone https://github.com/brianveverka/ble-mqtt-bridge.git
+cd ble-mqtt-bridge
 
 # Option 1: Native install (recommended for RPi)
 sudo ./install.sh install
@@ -653,7 +653,7 @@ than trusting `availability`.
 
 - **Documentation:** [README.md](README.md) for the overview, [AGENT_GUIDE.md](AGENT_GUIDE.md)
   for the device-onboarding method.
-- **Issues:** raise them wherever this repo lives — there is no public issue tracker.
+- **Issues:** [GitHub Issues](https://github.com/brianveverka/ble-mqtt-bridge/issues).
 
 ---
 
